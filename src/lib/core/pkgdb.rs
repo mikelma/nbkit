@@ -198,6 +198,7 @@ impl PkgDb {
         Graph::from(self.set, resolved, true)
     }
 
+    /*
     pub fn get_graph_2(
         &self,
         select: Option<Vec<&str>>,
@@ -231,6 +232,7 @@ impl PkgDb {
         println!("[TODO] broken dependency check as in struct Graph");
         Ok(resolved)
     }
+    */
 }
 
 impl Default for PkgDb {
