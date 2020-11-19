@@ -1,21 +1,117 @@
-use semver::Version;
+use semver::{Version, VersionReq};
+use serde;
 use serde_derive::{Deserialize, Serialize};
 
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::{Graph, NbError, Package, Set};
-use crate::{utils, TypeErr, DEFAULT_SET};
+use crate::{utils, Query, TypeErr, DEFAULT_SET};
+
+#[derive(Debug)]
+struct VersionWrap(Version);
+
+impl VersionWrap {
+    pub fn inner(&self) -> &Version {
+        &self.0
+    }
+}
+
+impl serde::Serialize for VersionWrap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+struct VersionVisitor;
+
+impl<'de> serde::de::Visitor<'de> for VersionVisitor {
+    type Value = VersionWrap;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a semver formatted version")
+    }
+
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match Version::parse(s) {
+            Ok(v) => Ok(VersionWrap(v)),
+            Err(e) => Err(E::custom(e.to_string())),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VersionWrap {
+    fn deserialize<D>(deserializer: D) -> Result<VersionWrap, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(VersionVisitor)
+    }
+}
+
+#[derive(Debug)]
+struct DependencyWrap(String, VersionReq);
+
+impl DependencyWrap {
+    pub fn inner(&self) -> (&String, &VersionReq) {
+        (&self.0, &self.1)
+    }
+}
+
+impl serde::Serialize for DependencyWrap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+struct DependencyVisitor;
+
+impl<'de> serde::de::Visitor<'de> for DependencyVisitor {
+    type Value = DependencyWrap;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a semver formatted version requirement")
+    }
+
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match utils::parse_pkg_str_info(s) {
+            Ok((name, vreq)) => Ok(DependencyWrap(name, vreq)),
+            Err(e) => Err(E::custom(e.to_string())),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DependencyWrap {
+    fn deserialize<D>(deserializer: D) -> Result<DependencyWrap, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(DependencyVisitor)
+    }
+}
 
 /// Struct that contains all info about a package from a `PkgDb`.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PkgInfo {
     /// The package version must be formatted in semver.
-    version: String,
+    version: VersionWrap,
     /// Package's depency list.
-    depends: Option<Vec<String>>,
+    depends: Option<Vec<DependencyWrap>>,
     /// Brief description of the package.
     description: String,
     /// Set specific information. It is optional, as meta-packages
@@ -25,16 +121,26 @@ pub struct PkgInfo {
 }
 
 impl PkgInfo {
-    pub fn version(&self) -> &str {
-        &self.version
+    pub fn version(&self) -> &Version {
+        self.version.inner()
     }
 
     pub fn description(&self) -> &str {
         &self.description
     }
 
-    pub fn depends(&self) -> &Option<Vec<String>> {
-        &self.depends
+    pub fn depends(&self) -> Option<Vec<(String, VersionReq)>> {
+        match &self.depends {
+            Some(list) => Some(
+                list.iter()
+                    .map(|x| {
+                        let a = x.inner();
+                        (a.0.clone(), a.1.clone())
+                    })
+                    .collect(),
+            ),
+            None => None,
+        }
     }
 }
 
@@ -116,8 +222,12 @@ impl PkgDb {
         // find the package in the `PkgDb`, if it exists get all info about it
         let pkg_info = self.get_pkg_info(name)?;
         // get all the info we have about the package
-        let version = Version::parse(&pkg_info.version)?;
+
+        // let version = Version::parse(&pkg_info.version)?;
+        let version = pkg_info.version();
+
         // format all the dependencies of the package
+        /*
         let depends = match &pkg_info.depends {
             Some(deps_list) => {
                 let mut queries = vec![];
@@ -128,6 +238,15 @@ impl PkgDb {
             }
             None => None,
         };
+        */
+        let depends = match pkg_info.depends() {
+            Some(list) => Some(
+                list.iter()
+                    .map(|(name, vreq)| (name.to_string(), vreq.clone()))
+                    .collect(),
+            ),
+            None => None,
+        };
         // get the set specific information and build the package
         match &pkg_info.set_info {
             Some(SetInfo::Universe(set_info)) => {
@@ -135,7 +254,7 @@ impl PkgDb {
                 if self.set == Set::Universe {
                     Ok(Package::new_universe(
                         name,
-                        version,
+                        version.clone(),
                         depends,
                         &set_info.source,
                     ))
@@ -151,7 +270,7 @@ impl PkgDb {
                 if self.set == Set::Local {
                     // convert strings to PathBufs
                     let pathbufs = set_info.paths.iter().map(PathBuf::from).collect();
-                    Ok(Package::new_local(name, version, depends, pathbufs))
+                    Ok(Package::new_local(name, version.clone(), depends, pathbufs))
                 } else {
                     return Err(Box::new(NbError::BrokenSetConsistency(
                         name.to_string(),
@@ -161,7 +280,7 @@ impl PkgDb {
             }
             None => {
                 // the package is a mata-package as metas have no package info
-                Ok(Package::new_meta(name, version, depends))
+                Ok(Package::new_meta(name, version.clone(), depends))
             }
         }
     }
