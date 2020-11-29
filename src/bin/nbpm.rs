@@ -75,7 +75,12 @@ fn main() {
             Ok(g) => g,
             Err(e) => exit_with_err(e),
         };
-        println!("{:?}", graph);
+
+        println!("Packages to be installed ({}):", graph.len());
+        for (name, info) in graph {
+            println!("    {} {}", name, info);
+        }
+
         let mut local_db = get_local_pkgdb(&config);
     }
 
