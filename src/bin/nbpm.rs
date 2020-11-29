@@ -1,3 +1,5 @@
+use toml;
+
 use std::path::Path;
 
 use nbkit::core::PkgDb;
@@ -76,7 +78,6 @@ fn main() {
         println!("{}", graph);
 
         let mut local_db = get_local_pkgdb(&config);
-        println!("{:#?}", local_db);
     }
 
     // -------------------------------- //
