@@ -7,6 +7,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::str::FromStr;
 
 use super::{Graph, NbError, Package, Set};
 use crate::{utils, Query, TypeErr, DEFAULT_SET};
@@ -72,7 +73,7 @@ impl serde::Serialize for DependencyWrap {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.0.to_string())
+        serializer.serialize_str(format!("{}{}", self.0.to_string(), self.1.to_string()).as_str())
     }
 }
 
