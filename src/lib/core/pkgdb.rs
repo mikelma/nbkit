@@ -2,10 +2,11 @@ use semver::{Version, VersionReq};
 use serde_derive::{Deserialize, Serialize};
 
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{wrappers::*, Graph, NbError, Package, Set};
+use super::{wrappers::*, NbError, Set};
 use crate::{TypeErr, DEFAULT_SET};
 
 /// Struct that contains all info about a package from a `PkgDb`.
@@ -21,6 +22,13 @@ pub struct PkgInfo {
     /// have no set info.
     #[serde(flatten)]
     set_info: Option<SetInfo>,
+}
+
+impl fmt::Display for PkgInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.version.inner().to_string())?;
+        writeln!(f, "   {}", self.description)
+    }
 }
 
 impl PkgInfo {
@@ -121,6 +129,7 @@ impl PkgDb {
     /// **Important note**: Not all the information contained in the `PkgDb` abput a package is
     /// transfered to the actual `Package` object. For example the description of a package is not
     /// included in the `Package` object. This is done for efficiency purposes.
+    /*
     pub fn get_package(&self, name: &str) -> Result<Package, TypeErr> {
         // find the package in the `PkgDb`, if it exists get all info about it
         let pkg_info = self.get_pkg_info(name)?;
@@ -129,19 +138,6 @@ impl PkgDb {
         // let version = Version::parse(&pkg_info.version)?;
         let version = pkg_info.version();
 
-        // format all the dependencies of the package
-        /*
-        let depends = match &pkg_info.depends {
-            Some(deps_list) => {
-                let mut queries = vec![];
-                for dep_str in deps_list {
-                    queries.push(utils::parse_pkg_str_info(&dep_str)?);
-                }
-                Some(queries)
-            }
-            None => None,
-        };
-        */
         let depends = match pkg_info.depends() {
             Some(list) => Some(
                 list.iter()
@@ -187,7 +183,9 @@ impl PkgDb {
             }
         }
     }
+    */
 
+    /*
     pub fn get_graph(&self, select: Option<Vec<&str>>) -> Result<Graph, TypeErr> {
         // packages pending to be processed
         let mut pending: Vec<String> = match select {
@@ -219,19 +217,19 @@ impl PkgDb {
         // the integrity check is enabled, as the integrity of the graph is not ensured
         Graph::from(self.set, resolved, true)
     }
+    */
 
-    /*
-    pub fn get_graph_2(
+    pub fn get_subgraph(
         &self,
         select: Option<Vec<&str>>,
-    ) -> Result<HashMap<String, Rc<PkgInfo>>, TypeErr> {
+    ) -> Result<HashMap<String, &PkgInfo>, TypeErr> {
         // packages pending to be processed
         let mut pending: Vec<String> = match select {
             Some(sels) => sels.iter().map(|s| s.to_string()).collect(),
             None => self.pkgdata.keys().cloned().collect(),
         };
 
-        let mut resolved: HashMap<String, Rc<Package>> = HashMap::new();
+        let mut resolved: HashMap<String, &PkgInfo> = HashMap::new();
 
         while !pending.is_empty() {
             let current = match pending.pop() {
@@ -244,17 +242,56 @@ impl PkgDb {
             let pkg = self.get_pkg_info(&current)?;
             if let Some(dependencies) = pkg.depends() {
                 for (name, _) in dependencies {
-                    if !pending.contains(name) && !resolved.contains_key(name) {
+                    if !pending.contains(&name) && !resolved.contains_key(&name) {
                         pending.push(name.clone());
                     }
                 }
             }
             resolved.insert(current, pkg);
         }
-        println!("[TODO] broken dependency check as in struct Graph");
+        // println!("[TODO] broken dependency check as in struct Graph");
+        Self::check_subgraph_integrity(&resolved)?;
         Ok(resolved)
     }
-    */
+
+    /// This function checks if the integrity of the graph is correct. The integrity is correct
+    /// when every dependency of every the node is inside the graph, and the dependencies met the
+    /// version requirements the packages have.
+    ///
+    /// **Note**: The cost of this function is O(n^2).
+    //NOTE: Parallelize?
+    pub fn check_subgraph_integrity(subgraph: &HashMap<String, &PkgInfo>) -> Result<(), TypeErr> {
+        // for every node (package) in the graph
+        for (node_name, node) in subgraph.iter() {
+            // for each dependency (if some) of the package
+            if let Some(dependencies) = node.depends() {
+                for (dep_name, version_req) in dependencies {
+                    // check if the dependency is in the graph
+                    match subgraph.get(&dep_name) {
+                        // if the dependency exists, check if the version requirement is met
+                        Some(dep) => {
+                            if !version_req.matches(dep.version()) {
+                                return Err(Box::new(NbError::BrokenDependency(
+                                    dep_name.to_string(),
+                                    version_req.clone(),
+                                    dep.version().clone(),
+                                    node_name.to_string(),
+                                )));
+                            }
+                        }
+                        // the dependency is missing in the graph
+                        None => {
+                            return Err(Box::new(NbError::MissingDependency(
+                                dep_name.to_string(),
+                                node_name.to_string(),
+                            )))
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for PkgDb {

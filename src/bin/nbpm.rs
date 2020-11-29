@@ -71,12 +71,11 @@ fn main() {
     if let Some(names_list) = args.values_of("install") {
         let index_db = get_index_pkgdb(&config);
         let names: Vec<&str> = names_list.collect();
-        let graph = match index_db.get_graph(Some(names)) {
+        let graph = match index_db.get_subgraph(Some(names)) {
             Ok(g) => g,
             Err(e) => exit_with_err(e),
         };
-        println!("{}", graph);
-
+        println!("{:?}", graph);
         let mut local_db = get_local_pkgdb(&config);
     }
 
