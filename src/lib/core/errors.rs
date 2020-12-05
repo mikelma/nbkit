@@ -24,6 +24,11 @@ pub enum NbError {
     BrokenSetConsistency(String, Set),
     // ------ PkgDb related ---- //
     PkgDbLoad(Box<dyn Error>),
+    // --------- Network --------//
+    /// Server related netwok erorr, contains the error message or code.
+    ServerError(String),
+    /// Client related netwok erorr, contains the error message or code.
+    ClientError(String),
 }
 
 impl fmt::Display for NbError {
@@ -51,6 +56,9 @@ impl fmt::Display for NbError {
             ),
             // ------ PkgDb related ---- //
             NbError::PkgDbLoad(err) => write!(f, "Cannot load PkgDb: {}", err),
+            // --------- Network --------//
+            NbError::ServerError(err) => write!(f, "Server side net error: {}", err),
+            NbError::ClientError(err) => write!(f, "Client side net error: {}", err),
         }
     }
 }

@@ -1,8 +1,9 @@
-use toml;
+// use toml;
 
+use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
-use nbkit::core::PkgDb;
+use nbkit::core::{PkgDb, SetInfo};
 use nbkit::nbpm::*;
 use nbkit::{exit_with_err, repo::*, utils};
 
@@ -77,11 +78,65 @@ fn main() {
         };
 
         println!("Packages to be installed ({}):", graph.len());
-        for (name, info) in graph {
+        for (name, info) in &graph {
             println!("    {} {}", name, info);
         }
 
+        let mut line = String::new();
+        print!("\nAre you sure you want to install this packages? [Y/n] ");
+        if let Err(e) = stdout().flush() {
+            exit_with_err(Box::new(e));
+        }
+        let _n = stdin()
+            .read_line(&mut line)
+            .expect("Cannot read user input");
+        line = line.trim_end().to_string();
+        if line == "N" || line == "n" {
+            println!("Installation cancelled");
+            std::process::exit(0);
+        }
+        println!();
+
+        // TODO: Lock the database file
+        // open the local package database
         let mut local_db = get_local_pkgdb(&config);
+
+        if let Err(e) = init_working_dir() {
+            exit_with_err(e);
+        }
+
+        // download all the packages to be installed
+        let mut pkg_paths = vec![];
+        for (name, info) in graph {
+            //  get the location of the package in the server
+            let pkg_loc = match info.get_set_info() {
+                Some(set) => match set {
+                    SetInfo::Universe(u) => u.location(),
+                    SetInfo::Local(_) => unimplemented!(),
+                },
+                None => continue,
+            };
+
+            // name of the compressed package
+            let pkg_xz_name = format!("{}.tar.xz", name);
+            // the url to download the package from
+            let pkg_url = format!(
+                "{}/{}/{}/{}",
+                config.repo_url(),
+                REPO_BIN_DIR,
+                pkg_loc,
+                pkg_xz_name
+            );
+            // final path where the compressed package will be downloaded to
+            let pkg_xz_path = format!("{}/{}", NBPM_WORK_DIR, pkg_xz_name);
+
+            println!("[*] Downloanding: {}", pkg_url);
+            if let Err(e) = utils::download(&pkg_url, Path::new(&pkg_xz_path)) {
+                exit_with_err(e);
+            }
+
+            pkg_paths.push(pkg_xz_path);
+        }
     }
 
     // -------------------------------- //

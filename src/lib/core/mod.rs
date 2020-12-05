@@ -4,5 +4,5 @@ pub mod set;
 pub mod wrappers;
 
 pub use errors::NbError;
-pub use pkgdb::PkgDb;
+pub use pkgdb::{InfoLocal, InfoUniverse, PkgDb, SetInfo};
 pub use set::Set;

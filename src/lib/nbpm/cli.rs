@@ -1,7 +1,10 @@
 use clap::{App, Arg};
 
 pub fn init_cli_args() -> App<'static, 'static> {
-    app_from_crate!()
+    App::new("nbpm")
+        .author(crate_authors!())
+        .about("Nebula package manager")
+        .version(crate_version!())
         .arg(
             Arg::with_name("config")
                 .short("c")
