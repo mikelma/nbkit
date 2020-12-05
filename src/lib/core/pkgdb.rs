@@ -32,6 +32,20 @@ impl fmt::Display for PkgInfo {
 }
 
 impl PkgInfo {
+    pub fn from(
+        version: VersionWrap,
+        depends: Option<Vec<DependencyWrap>>,
+        description: String,
+        set_info: Option<SetInfo>,
+    ) -> PkgInfo {
+        PkgInfo {
+            version,
+            depends,
+            description,
+            set_info,
+        }
+    }
+
     pub fn version(&self) -> &Version {
         self.version.inner()
     }
@@ -53,12 +67,16 @@ impl PkgInfo {
             None => None,
         }
     }
+
+    pub fn get_set_info(&self) -> &Option<SetInfo> {
+        &self.set_info
+    }
 }
 
 /// This enum is used to contain the information struct
 /// of the set the package is from.
 #[derive(Deserialize, Serialize, Debug)]
-enum SetInfo {
+pub enum SetInfo {
     #[serde(rename = "universe")]
     Universe(InfoUniverse),
     #[serde(rename = "local")]
@@ -67,15 +85,27 @@ enum SetInfo {
 
 /// Information about universe's packages.
 #[derive(Deserialize, Serialize, Debug)]
-struct InfoUniverse {
+pub struct InfoUniverse {
     /// Source to download the package from.
-    pub source: String,
+    location: String,
+}
+
+impl InfoUniverse {
+    pub fn location(&self) -> &str {
+        self.location.as_str()
+    }
 }
 
 /// Information about local packages.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct InfoLocal {
     paths: Vec<String>,
+}
+
+impl InfoLocal {
+    pub fn from(paths: Vec<String>) -> InfoLocal {
+        InfoLocal { paths }
+    }
 }
 
 /// Struct to contain the package data base. A package data base contains

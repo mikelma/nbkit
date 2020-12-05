@@ -3,12 +3,16 @@ use serde;
 
 use std::fmt;
 
-use crate::utils;
+use crate::{utils, Query};
 
 #[derive(Debug)]
 pub struct VersionWrap(Version);
 
 impl VersionWrap {
+    pub fn from(v: Version) -> VersionWrap {
+        VersionWrap(v)
+    }
+
     pub fn inner(&self) -> &Version {
         &self.0
     }
@@ -56,6 +60,10 @@ impl<'de> serde::Deserialize<'de> for VersionWrap {
 pub struct DependencyWrap(String, VersionReq);
 
 impl DependencyWrap {
+    pub fn from(q: Query) -> DependencyWrap {
+        DependencyWrap(q.0, q.1)
+    }
+
     pub fn inner(&self) -> (&String, &VersionReq) {
         (&self.0, &self.1)
     }
