@@ -68,7 +68,7 @@ impl PkgInfo {
         }
     }
 
-    pub fn get_set_info(&self) -> &Option<SetInfo> {
+    pub fn set_info(&self) -> &Option<SetInfo> {
         &self.set_info
     }
 }
@@ -106,6 +106,10 @@ impl InfoLocal {
     pub fn from(paths: Vec<String>) -> InfoLocal {
         InfoLocal { paths }
     }
+
+    pub fn paths(&self) -> &Vec<String> {
+        &self.paths
+    }
 }
 
 /// Struct to contain the package data base. A package data base contains
@@ -138,8 +142,26 @@ impl PkgDb {
         };
         match toml::from_str::<PkgDb>(&file_str) {
             Ok(db) => Ok(db),
-            Err(e) => return Err(Box::new(NbError::PkgDbLoad(Box::new(e)))),
+            Err(e) => Err(Box::new(NbError::PkgDbLoad(Box::new(e)))),
         }
+    }
+
+    /// Checks if the `PkgDb` contains a package by the name of the package.
+    pub fn contains_name(&self, name: &str) -> bool {
+        self.pkgdata.contains_key(name)
+    }
+
+    /// Checks if the `PkgDb` contains a package by the name and verison of the package.
+    pub fn contains(&self, name: &str, version: &Version) -> bool {
+        match self.pkgdata.get(name) {
+            Some(info) => info.version() == version,
+            None => false,
+        }
+    }
+
+    /// Inserts a package in the `PkgDb`. Acts equal to `HashMap`'s `insert` method.
+    pub fn insert(&mut self, name: &str, info: PkgInfo) -> Option<PkgInfo> {
+        self.pkgdata.insert(name.to_string(), info)
     }
 
     /// Given a a package name, returns the `PkgInfo` of the package. If the package does not exist
@@ -148,7 +170,7 @@ impl PkgDb {
         // find the package in the `PkgDb`, if it exists get all info about it
         match self.pkgdata.get(name) {
             Some(v) => Ok(v),
-            None => return Err(Box::new(NbError::PkgNotFound(name.to_string()))),
+            None => Err(Box::new(NbError::PkgNotFound(name.to_string()))),
         }
     }
 
@@ -206,7 +228,7 @@ impl PkgDb {
                             if !version_req.matches(dep.version()) {
                                 return Err(Box::new(NbError::BrokenDependency(
                                     dep_name.to_string(),
-                                    version_req.clone(),
+                                    version_req,
                                     dep.version().clone(),
                                     node_name.to_string(),
                                 )));

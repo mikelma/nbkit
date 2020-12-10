@@ -3,18 +3,18 @@ extern crate clap;
 
 use clap::{App, Arg};
 use semver::Version;
-use toml;
 use walkdir::WalkDir;
 
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{stdin, stdout, Write};
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 
 use nbkit::{
     core::pkgdb::{InfoLocal, PkgInfo, SetInfo},
     core::wrappers::{DependencyWrap, VersionWrap},
-    utils, Query,
+    repo::REPO_PKG_INFO,
+    utils,
 };
 
 fn main() {
@@ -34,7 +34,7 @@ fn main() {
         )
         .get_matches();
 
-    let mut paths = vec![];
+    let mut paths = vec![]; // list of paths to all the FILES of the package (dirs not included)
     for p in args.values_of("target-paths").unwrap() {
         let path = Path::new(p);
 
@@ -43,9 +43,10 @@ fn main() {
         } else if path.is_file() {
             paths.push(p.to_string());
         } else if path.is_dir() {
-            for entry in WalkDir::new(path).contents_first(true) {
+            for entry in WalkDir::new(path) {
                 paths.push(match entry {
-                    Ok(v) => format!("{}", v.path().display()),
+                    Ok(v) if v.path().is_file() => format!("{}", v.path().display()),
+                    Ok(_) => continue,
                     Err(_) => panic!("path error"),
                 });
             }
@@ -111,6 +112,6 @@ fn main() {
 
     let serialized = toml::to_string(&info).unwrap();
 
-    let mut file = File::create("nbinfo.toml").unwrap();
+    let mut file = File::create(REPO_PKG_INFO).unwrap();
     file.write_all(serialized.as_bytes()).unwrap();
 }

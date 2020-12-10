@@ -1,11 +1,11 @@
-// use toml;
-
+use std::collections::HashMap;
+use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
-use nbkit::core::{PkgDb, SetInfo};
-use nbkit::nbpm::*;
-use nbkit::{exit_with_err, repo::*, utils};
+use nbkit::core::{pkgdb::PkgInfo, Set, SetInfo};
+use nbkit::nbpm::{self, *};
+use nbkit::{repo::*, utils};
 
 fn main() {
     let args = cli::init_cli_args().get_matches();
@@ -54,7 +54,10 @@ fn main() {
 
     // ------------ search ------------ //
     if let Some(pkg_name) = args.value_of("search") {
-        let index_db = get_index_pkgdb(&config);
+        let index_db = match nbpm::utils::load_pkgdb(&config, Set::Universe) {
+            Ok(v) => v,
+            Err(e) => exit_with_err(Box::new(e)),
+        };
         let pkg_info = match index_db.get_pkg_info(pkg_name) {
             Ok(p) => p,
             Err(e) => exit_with_err(e),
@@ -70,16 +73,44 @@ fn main() {
 
     // ------------ install ----------- //
     if let Some(names_list) = args.values_of("install") {
-        let index_db = get_index_pkgdb(&config);
+        let index_db = match nbpm::utils::load_pkgdb(&config, Set::Universe) {
+            Ok(v) => v,
+            Err(e) => exit_with_err(Box::new(e)),
+        };
         let names: Vec<&str> = names_list.collect();
-        let graph = match index_db.get_subgraph(Some(names)) {
+        let mut graph = match index_db.get_subgraph(Some(names)) {
             Ok(g) => g,
             Err(e) => exit_with_err(e),
         };
 
+        // TODO: Lock the database file
+        // open the local package database
+        let mut local_db = match nbpm::utils::load_pkgdb(&config, Set::Local) {
+            Ok(v) => v,
+            Err(e) => exit_with_err(Box::new(e)),
+        };
+
         println!("Packages to be installed ({}):", graph.len());
+        let mut not_install = vec![]; // list of packages already installed and to be skipped
         for (name, info) in &graph {
-            println!("    {} {}", name, info);
+            if local_db.contains_name(name) {
+                if local_db.contains(name, info.version()) {
+                    // a package with the same name and versions exits in the system, so skip the
+                    // instalation of this package as it is already installed
+                    not_install.push(name.to_string());
+                } else {
+                    // a package with the same name exists in the local db,
+                    // but versions are different, so update the package
+                    println!("    {} {}    update", name, info);
+                }
+            } else {
+                println!("    {} {}    install", name, info);
+            }
+        }
+
+        // delete already installed packages from the graph
+        for name in &not_install {
+            let _ = graph.remove_entry(name);
         }
 
         let mut line = String::new();
@@ -97,24 +128,20 @@ fn main() {
         }
         println!();
 
-        // TODO: Lock the database file
-        // open the local package database
-        let mut local_db = get_local_pkgdb(&config);
-
         if let Err(e) = init_working_dir() {
             exit_with_err(e);
         }
 
         // download all the packages to be installed
-        let mut pkg_paths = vec![];
+        let mut downl_files = vec![];
         for (name, info) in graph {
             //  get the location of the package in the server
-            let pkg_loc = match info.get_set_info() {
+            let pkg_loc = match info.set_info() {
                 Some(set) => match set {
                     SetInfo::Universe(u) => u.location(),
                     SetInfo::Local(_) => unimplemented!(),
                 },
-                None => continue,
+                None => continue, // if the package is a metapackage
             };
 
             // name of the compressed package
@@ -134,32 +161,86 @@ fn main() {
             if let Err(e) = utils::download(&pkg_url, Path::new(&pkg_xz_path)) {
                 exit_with_err(e);
             }
+            downl_files.push((name, pkg_xz_path));
+        }
 
-            pkg_paths.push(pkg_xz_path);
+        // create a dir inside the working directory of nbpm to decompress the packages into
+        let mut success = true;
+        let mut installed_pkgs = HashMap::new();
+        for (pkg_name, path) in downl_files {
+            println!("\n[*] Decompressing {}...", path);
+            // decompress the downloaded package in nbpm's current working dir
+            if let Err(e) = utils::run_cmd("tar", &["xvf", path.as_str(), "-C", NBPM_WORK_CURR]) {
+                exit_with_err(e);
+            }
+
+            // read the info file of the package
+            let info_str = match fs::read_to_string(format!("{}/{}", NBPM_WORK_CURR, REPO_PKG_INFO))
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    success = false;
+                    break;
+                }
+            };
+            let mut pkg_info = match toml::from_str::<HashMap<String, PkgInfo>>(&info_str) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    success = false;
+                    break;
+                }
+            };
+
+            println!("[*] Installing {}...", pkg_name);
+            if let Err(e) = nbpm::utils::install_pkg_files(NBPM_WORK_CURR, config.root()) {
+                eprintln!("Error: {}", e);
+                success = false;
+                break;
+            }
+
+            let name = match pkg_info.keys().next() {
+                Some(k) => k.clone(),
+                None => unimplemented!(),
+            };
+            // it's safe to call unwrap here as in the lines above, key's existance its ensured
+            let info = pkg_info.remove(&name).unwrap();
+            installed_pkgs.insert(name.clone(), info);
+
+            if let Err(e) = clean_work_curr() {
+                eprintln!("Error: {}", e);
+                success = false;
+                break;
+            }
+        }
+
+        // if the installation of ALL the packages has been successfull, update the local db (use `new_pkgs`), else,
+        // delete all the installed packages.
+        if !success {
+            eprintln!("\n[EE] Installation failed =(");
+
+            if let Err(e) = nbpm::utils::remove_local_pkgs(&installed_pkgs, &config) {
+                eprintln!("[!] Warning failed to remove package: {}", e);
+                exit_with_err(e);
+            }
+        } else {
+            // success installation of all the packages, so update the local_db
+            for (name, info) in installed_pkgs {
+                let _ = local_db.insert(&name, info);
+            }
+            let index_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
+            match toml::to_string_pretty(&local_db) {
+                Ok(s) => {
+                    if let Err(e) = fs::write(index_path, s.as_bytes()) {
+                        exit_with_err(Box::new(e));
+                    }
+                }
+                Err(e) => {
+                    exit_with_err(Box::new(e));
+                }
+            }
         }
     }
-
     // -------------------------------- //
-}
-
-fn get_index_pkgdb(config: &Config) -> PkgDb {
-    let index_path = format!("{}/{}", config.home(), LOCAL_INDEX_PATH);
-    match PkgDb::load(Path::new(&index_path)) {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Failed to load repository index from {}.", index_path);
-            exit_with_err(e)
-        }
-    }
-}
-
-fn get_local_pkgdb(config: &Config) -> PkgDb {
-    let local_db_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
-    match PkgDb::load(Path::new(&local_db_path)) {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Failed to load local db from: {}", local_db_path);
-            exit_with_err(e)
-        }
-    }
 }

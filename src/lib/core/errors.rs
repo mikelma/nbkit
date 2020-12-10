@@ -29,6 +29,12 @@ pub enum NbError {
     ServerError(String),
     /// Client related netwok erorr, contains the error message or code.
     ClientError(String),
+    // -------- Commands -------//
+    /// Cannot start child process, contains the name of program that failed to start and the cause.
+    CmdStartChild(String),
+    /// Child returned error status, contains the name of the child process and stderr output of
+    /// the child if some.
+    CmdChildErr(String),
 }
 
 impl fmt::Display for NbError {
@@ -59,6 +65,9 @@ impl fmt::Display for NbError {
             // --------- Network --------//
             NbError::ServerError(err) => write!(f, "Server side net error: {}", err),
             NbError::ClientError(err) => write!(f, "Client side net error: {}", err),
+            // -------- Commands -------//
+            NbError::CmdStartChild(err) => write!(f, "Cannot start child process: {}", err),
+            NbError::CmdChildErr(err) => write!(f, "Child process returned error status: {}", err),
         }
     }
 }

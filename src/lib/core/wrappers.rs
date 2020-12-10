@@ -1,5 +1,4 @@
 use semver::{Version, VersionReq};
-use serde;
 
 use std::fmt;
 
