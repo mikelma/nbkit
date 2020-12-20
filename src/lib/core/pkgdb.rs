@@ -166,12 +166,9 @@ impl PkgDb {
 
     /// Given a a package name, returns the `PkgInfo` of the package. If the package does not exist
     /// in the `PkgDb`, an error is returned.
-    pub fn get_pkg_info(&self, name: &str) -> Result<&PkgInfo, TypeErr> {
+    pub fn get_pkg_info(&self, name: &str) -> Option<&PkgInfo> {
         // find the package in the `PkgDb`, if it exists get all info about it
-        match self.pkgdata.get(name) {
-            Some(v) => Ok(v),
-            None => Err(Box::new(NbError::PkgNotFound(name.to_string()))),
-        }
+        self.pkgdata.get(name)
     }
 
     pub fn get_subgraph(
@@ -194,7 +191,10 @@ impl PkgDb {
             };
 
             // find the package currently being processed
-            let pkg = self.get_pkg_info(&current)?;
+            let pkg = match self.get_pkg_info(&current) {
+                Some(p) => p,
+                None => return Err(Box::new(NbError::PkgNotFound(current.to_string()))),
+            };
             if let Some(dependencies) = pkg.depends() {
                 for (name, _) in dependencies {
                     if !pending.contains(&name) && !resolved.contains_key(&name) {

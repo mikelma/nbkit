@@ -1,3 +1,5 @@
+use semver::Version;
+
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
@@ -10,6 +12,9 @@ pub enum NbpmError {
     CleanUnSuccessfulInstallation,
     /// Contains paths to the files that couldn't be removed  
     DirtyUnSuccessfulInstallation(Vec<PathBuf>),
+    /// A package requires another package to be downgraded. Contains the name of the package
+    /// asked to downgrade and the current version of the package and version to downgrade to
+    RequiresPkgDowngrade(String, Version, Version),
 }
 
 impl fmt::Display for NbpmError {
@@ -32,6 +37,11 @@ impl fmt::Display for NbpmError {
                 }
                 Ok(())
             }
+            NbpmError::RequiresPkgDowngrade(name, v_old, v_new) => write!(
+                f,
+                "Required to downgrade {} from version {} to {}",
+                name, v_old, v_new
+            ),
         }
     }
 }

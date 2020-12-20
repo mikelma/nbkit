@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
-use nbkit::core::{pkgdb::PkgInfo, Set, SetInfo};
+use nbkit::core::{pkgdb::PkgInfo, Set};
 use nbkit::nbpm::{self, *};
 use nbkit::{repo::*, utils};
 
@@ -58,16 +58,17 @@ fn main() {
             Ok(v) => v,
             Err(e) => exit_with_err(Box::new(e)),
         };
-        let pkg_info = match index_db.get_pkg_info(pkg_name) {
-            Ok(p) => p,
-            Err(e) => exit_with_err(e),
-        };
-        println!(
-            "{} - {}    {}",
-            pkg_name,
-            pkg_info.version(),
-            pkg_info.description()
-        );
+        match index_db.get_pkg_info(pkg_name) {
+            Some(info) => println!(
+                "{} - {}    {}",
+                pkg_name,
+                info.version(),
+                info.description()
+            ),
+            None => {
+                eprintln!("Package {} not found =(", pkg_name);
+            }
+        }
     }
     // -------------------------------- //
 
@@ -90,29 +91,20 @@ fn main() {
             Err(e) => exit_with_err(Box::new(e)),
         };
 
+        // remove the already installed packages from the graph, this function will also show the
+        // action nbpm will take for every package (install/update...)
+        if let Err(e) = nbpm::utils::purge_already_installed(&mut graph, &local_db) {
+            exit_with_err(e);
+        }
+
+        // after pkg graph purge, check if there is any package to be installed
+        if graph.is_empty() {
+            println!("Packages already installed. Skipping the installation...");
+            return;
+        }
+
+        // show the packages to be installed and askfor user confirmation
         println!("Packages to be installed ({}):", graph.len());
-        let mut not_install = vec![]; // list of packages already installed and to be skipped
-        for (name, info) in &graph {
-            if local_db.contains_name(name) {
-                if local_db.contains(name, info.version()) {
-                    // a package with the same name and versions exits in the system, so skip the
-                    // instalation of this package as it is already installed
-                    not_install.push(name.to_string());
-                } else {
-                    // a package with the same name exists in the local db,
-                    // but versions are different, so update the package
-                    println!("    {} {}    update", name, info);
-                }
-            } else {
-                println!("    {} {}    install", name, info);
-            }
-        }
-
-        // delete already installed packages from the graph
-        for name in &not_install {
-            let _ = graph.remove_entry(name);
-        }
-
         let mut line = String::new();
         print!("\nAre you sure you want to install this packages? [Y/n] ");
         if let Err(e) = stdout().flush() {
@@ -128,116 +120,39 @@ fn main() {
         }
         println!();
 
-        if let Err(e) = init_working_dir() {
+        if let Err(e) = nbpm::utils::init_working_dir() {
             exit_with_err(e);
         }
 
-        // download all the packages to be installed
-        let mut downl_files = vec![];
-        for (name, info) in graph {
-            //  get the location of the package in the server
-            let pkg_loc = match info.set_info() {
-                Some(set) => match set {
-                    SetInfo::Universe(u) => u.location(),
-                    SetInfo::Local(_) => unimplemented!(),
-                },
-                None => continue, // if the package is a metapackage
-            };
+        let downl_files = match nbpm::utils::download_pkgs_to_workdir(&graph, &config) {
+            Ok(v) => v,
+            Err(e) => exit_with_err(e),
+        };
 
-            // name of the compressed package
-            let pkg_xz_name = format!("{}.tar.xz", name);
-            // the url to download the package from
-            let pkg_url = format!(
-                "{}/{}/{}/{}",
-                config.repo_url(),
-                REPO_BIN_DIR,
-                pkg_loc,
-                pkg_xz_name
-            );
-            // final path where the compressed package will be downloaded to
-            let pkg_xz_path = format!("{}/{}", NBPM_WORK_DIR, pkg_xz_name);
-
-            println!("[*] Downloanding: {}", pkg_url);
-            if let Err(e) = utils::download(&pkg_url, Path::new(&pkg_xz_path)) {
-                exit_with_err(e);
-            }
-            downl_files.push((name, pkg_xz_path));
-        }
-
-        // create a dir inside the working directory of nbpm to decompress the packages into
-        let mut success = true;
-        let mut installed_pkgs = HashMap::new();
-        for (pkg_name, path) in downl_files {
-            println!("\n[*] Decompressing {}...", path);
-            // decompress the downloaded package in nbpm's current working dir
-            if let Err(e) = utils::run_cmd("tar", &["xvf", path.as_str(), "-C", NBPM_WORK_CURR]) {
-                exit_with_err(e);
-            }
-
-            // read the info file of the package
-            let info_str = match fs::read_to_string(format!("{}/{}", NBPM_WORK_CURR, REPO_PKG_INFO))
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    success = false;
-                    break;
+        match nbpm::utils::install_pkgs(&downl_files, &config) {
+            Ok(installed_pkgs) => {
+                // successfull installation of all the packages, now update the local_db
+                for (name, info) in installed_pkgs {
+                    let _ = local_db.insert(&name, info);
                 }
-            };
-            let mut pkg_info = match toml::from_str::<HashMap<String, PkgInfo>>(&info_str) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    success = false;
-                    break;
-                }
-            };
-
-            println!("[*] Installing {}...", pkg_name);
-            if let Err(e) = nbpm::utils::install_pkg_files(NBPM_WORK_CURR, config.root()) {
-                eprintln!("Error: {}", e);
-                success = false;
-                break;
-            }
-
-            let name = match pkg_info.keys().next() {
-                Some(k) => k.clone(),
-                None => unimplemented!(),
-            };
-            // it's safe to call unwrap here as in the lines above, key's existance its ensured
-            let info = pkg_info.remove(&name).unwrap();
-            installed_pkgs.insert(name.clone(), info);
-
-            if let Err(e) = clean_work_curr() {
-                eprintln!("Error: {}", e);
-                success = false;
-                break;
-            }
-        }
-
-        // if the installation of ALL the packages has been successfull, update the local db (use `new_pkgs`), else,
-        // delete all the installed packages.
-        if !success {
-            eprintln!("\n[EE] Installation failed =(");
-
-            if let Err(e) = nbpm::utils::remove_local_pkgs(&installed_pkgs, &config) {
-                eprintln!("[!] Warning failed to remove package: {}", e);
-                exit_with_err(e);
-            }
-        } else {
-            // success installation of all the packages, so update the local_db
-            for (name, info) in installed_pkgs {
-                let _ = local_db.insert(&name, info);
-            }
-            let index_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
-            match toml::to_string_pretty(&local_db) {
-                Ok(s) => {
-                    if let Err(e) = fs::write(index_path, s.as_bytes()) {
+                let index_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
+                match toml::to_string_pretty(&local_db) {
+                    Ok(s) => {
+                        if let Err(e) = fs::write(index_path, s.as_bytes()) {
+                            exit_with_err(Box::new(e));
+                        }
+                    }
+                    Err(e) => {
                         exit_with_err(Box::new(e));
                     }
                 }
-                Err(e) => {
-                    exit_with_err(Box::new(e));
+            }
+            Err((installed_pkgs, err)) => {
+                eprintln!("[EE] Installation failed: {}", err);
+                // delete all the installed packages.
+                if let Err(e) = nbpm::utils::remove_local_pkgs(&installed_pkgs, &config) {
+                    eprintln!("[!] Warning failed to remove package: {}", e);
+                    exit_with_err(e);
                 }
             }
         }
