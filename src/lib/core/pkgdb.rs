@@ -10,7 +10,7 @@ use super::{wrappers::*, NbError, Set};
 use crate::{TypeErr, DEFAULT_SET};
 
 /// Struct that contains all info about a package from a `PkgDb`.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct PkgInfo {
     /// The package version must be formatted in semver.
     version: VersionWrap,
@@ -75,11 +75,15 @@ impl PkgInfo {
     pub fn mut_set_info(&mut self) -> &mut Option<SetInfo> {
         &mut self.set_info
     }
+
+    pub fn is_meta(&self) -> bool {
+        self.set_info.is_none()
+    }
 }
 
 /// This enum is used to contain the information struct
 /// of the set the package is from.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum SetInfo {
     #[serde(rename = "universe")]
     Universe(InfoUniverse),
@@ -88,7 +92,7 @@ pub enum SetInfo {
 }
 
 /// Information about universe's packages.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct InfoUniverse {
     /// Source to download the package from.
     location: String,
@@ -101,7 +105,7 @@ impl InfoUniverse {
 }
 
 /// Information about local packages.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct InfoLocal {
     paths: Vec<String>,
 }

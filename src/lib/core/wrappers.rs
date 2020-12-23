@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::{utils, Query};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VersionWrap(Version);
 
 impl VersionWrap {
@@ -55,7 +55,7 @@ impl<'de> serde::Deserialize<'de> for VersionWrap {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DependencyWrap(String, VersionReq);
 
 impl DependencyWrap {

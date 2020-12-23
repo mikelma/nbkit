@@ -145,6 +145,7 @@ pub fn purge_already_installed(
                     );
                 }
             }
+            // there is no package with the same name in the local PkgDb
             None => println!("    {} {}    install", name, info),
         }
     }

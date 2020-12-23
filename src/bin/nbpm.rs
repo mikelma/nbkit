@@ -1,12 +1,8 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
-use nbkit::core::{
-    pkgdb::{PkgInfo, SetInfo},
-    Set,
-};
+use nbkit::core::{pkgdb::SetInfo, Set};
 use nbkit::nbpm::{self, *};
 use nbkit::{repo::*, utils};
 
@@ -140,20 +136,10 @@ fn main() {
                     // config file
                     match info.mut_set_info() {
                         Some(SetInfo::Local(set)) => set.set_path_prefix(Path::new(config.root())),
-                        Some(SetInfo::Universe(_)) | None => unreachable!(),
+                        Some(SetInfo::Universe(_)) => unreachable!(),
+                        None => (), // the package is a meta-package, it does not contain any Local set info to modify
                     }
                     let _ = local_db.insert(&name, info);
-                }
-                let index_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
-                match toml::to_string_pretty(&local_db) {
-                    Ok(s) => {
-                        if let Err(e) = fs::write(index_path, s.as_bytes()) {
-                            exit_with_err(Box::new(e));
-                        }
-                    }
-                    Err(e) => {
-                        exit_with_err(Box::new(e));
-                    }
                 }
             }
             Err((installed_pkgs, err)) => {
@@ -165,6 +151,36 @@ fn main() {
                 }
             }
         }
+
+        // get metapackages of the graph and insert them into the local db as they are considered
+        // installed on the system
+        graph
+            .iter()
+            .filter(|(_, &info)| info.is_meta())
+            .for_each(|(name, &info)| {
+                let _ = local_db.insert(name, info.clone());
+            });
+
+        // save the updated local db with the new packages
+        let db_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
+        match toml::to_string_pretty(&local_db) {
+            Ok(s) => {
+                if let Err(e) = fs::write(db_path, s.as_bytes()) {
+                    exit_with_err(Box::new(e));
+                }
+            }
+            Err(e) => {
+                exit_with_err(Box::new(e));
+            }
+        }
+
+        println!("Done!");
+    }
+    // -------------------------------- //
+
+    // ------------ remove ------------ //
+    if let Some(names_list) = args.values_of("remove") {
+        println!("Remove: {:?}", names_list);
     }
     // -------------------------------- //
 }

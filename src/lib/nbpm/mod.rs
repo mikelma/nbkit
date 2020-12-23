@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::fs;
-use std::path::Path;
 use std::process::exit;
 
 pub mod cli;
@@ -10,8 +8,6 @@ pub mod utils;
 
 pub use config::Config;
 pub use errors::NbpmError;
-
-use crate::TypeErr;
 
 // constant and default variables of nbpm
 
