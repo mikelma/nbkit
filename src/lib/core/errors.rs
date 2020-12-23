@@ -17,6 +17,10 @@ pub enum NbError {
     /// Contains the name of the broken dependecy, the expected version, the actual verison of the
     /// dependecy and the name of the package that requires the dependecy.
     BrokenDependency(String, VersionReq, Version, String),
+    /// When removing a package breaks another package that depends on the package to be removed.
+    /// Contains the name of the package requested to be removed and the name of the package that
+    /// might break if the first is removed.
+    RemoveBreaksPkg(String, String),
     /// Contains the name of the package that was not found
     PkgNotFound(String),
     /// Contains the name package of the package that breaks the set consistency and the expected
@@ -53,6 +57,11 @@ impl fmt::Display for NbError {
                 ver.to_string(),
                 dep_name,
                 pkg_name,
+            ),
+            NbError::RemoveBreaksPkg(to_remove, breaks) => write!(
+                f,
+                "Removing package {} breaks package {}",
+                to_remove, breaks
             ),
             NbError::PkgNotFound(name) => write!(f, "Package {} not found", name),
             NbError::BrokenSetConsistency(name, set) => write!(
