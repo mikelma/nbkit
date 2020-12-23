@@ -71,6 +71,10 @@ impl PkgInfo {
     pub fn set_info(&self) -> &Option<SetInfo> {
         &self.set_info
     }
+
+    pub fn mut_set_info(&mut self) -> &mut Option<SetInfo> {
+        &mut self.set_info
+    }
 }
 
 /// This enum is used to contain the information struct
@@ -109,6 +113,22 @@ impl InfoLocal {
 
     pub fn paths(&self) -> &Vec<String> {
         &self.paths
+    }
+
+    /// Sets a common prefix for all paths of the `InfoLocal`.
+    ///
+    /// # Panic
+    ///
+    /// If any of the new paths is non UTF-8 compatible, this function panic.
+    pub fn set_path_prefix(&mut self, prefix: &Path) {
+        self.paths = self
+            .paths
+            .iter()
+            .map(|p| match prefix.join(p).to_str() {
+                Some(s) => s.to_string(),
+                None => unimplemented!("Trying to set non UTF-8 prefix to InfoLocal paths"),
+            })
+            .collect();
     }
 }
 

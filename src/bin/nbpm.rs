@@ -3,7 +3,10 @@ use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
-use nbkit::core::{pkgdb::PkgInfo, Set};
+use nbkit::core::{
+    pkgdb::{PkgInfo, SetInfo},
+    Set,
+};
 use nbkit::nbpm::{self, *};
 use nbkit::{repo::*, utils};
 
@@ -132,7 +135,13 @@ fn main() {
         match nbpm::utils::install_pkgs(&downl_files, &config) {
             Ok(installed_pkgs) => {
                 // successfull installation of all the packages, now update the local_db
-                for (name, info) in installed_pkgs {
+                for (name, mut info) in installed_pkgs {
+                    // set the prefix of the package's file paths to the root path specified in the
+                    // config file
+                    match info.mut_set_info() {
+                        Some(SetInfo::Local(set)) => set.set_path_prefix(Path::new(config.root())),
+                        Some(SetInfo::Universe(_)) | None => unreachable!(),
+                    }
                     let _ = local_db.insert(&name, info);
                 }
                 let index_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
