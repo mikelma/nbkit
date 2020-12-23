@@ -1,7 +1,10 @@
 use clap::{App, Arg};
 
 pub fn init_cli_args() -> App<'static, 'static> {
-    app_from_crate!()
+    App::new("nbpm")
+        .author(crate_authors!())
+        .about("Nebula package manager")
+        .version(crate_version!())
         .arg(
             Arg::with_name("config")
                 .short("c")
@@ -14,7 +17,7 @@ pub fn init_cli_args() -> App<'static, 'static> {
             Arg::with_name("update-repos")
                 .short("u")
                 .long("update")
-                .conflicts_with_all(&["search", "install", "PKG"])
+                .conflicts_with_all(&["search", "install", "PKG", "remove"])
                 .takes_value(false)
                 .help("Update repostories"),
         )
@@ -24,7 +27,7 @@ pub fn init_cli_args() -> App<'static, 'static> {
                 .long("search")
                 .takes_value(true)
                 .value_name("package")
-                .conflicts_with_all(&["update-repos", "install"])
+                .conflicts_with_all(&["update-repos", "install", "remove"])
                 .help("Search for a package matching PKG"),
         )
         .arg(
@@ -34,7 +37,17 @@ pub fn init_cli_args() -> App<'static, 'static> {
                 .takes_value(true)
                 .multiple(true)
                 .value_name("packages")
-                .conflicts_with_all(&["update-repos", "search"])
+                .conflicts_with_all(&["update-repos", "search", "remove"])
                 .help("Install a package or list of packages"),
+        )
+        .arg(
+            Arg::with_name("remove")
+                .short("R")
+                .long("remove")
+                .takes_value(true)
+                .multiple(true)
+                .value_name("packages")
+                .conflicts_with_all(&["update-repos", "search", "install"])
+                .help("Remove a package or a list of packages"),
         )
 }
