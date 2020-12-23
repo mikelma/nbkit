@@ -2,6 +2,7 @@ use walkdir::WalkDir;
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
 use super::{config::Config, NbpmError};
@@ -64,6 +65,16 @@ pub fn load_pkgdb(config: &Config, set: Set) -> Result<PkgDb, NbpmError> {
             Set::Universe => Err(NbpmError::RepoIndexLoad(format!("{}: {}", db_path, e))),
         },
     }
+}
+
+/// Read user input from command line in form of a `String`.
+pub fn read_line(prompt: &str) -> Result<String, TypeErr> {
+    print!("{}", prompt);
+    stdout().flush()?;
+    let mut line = String::new();
+    let _n = stdin().read_line(&mut line)?;
+    line = line.trim_end().to_string();
+    return Ok(line);
 }
 
 pub fn remove_local_pkgs(pkgs: &HashMap<String, PkgInfo>, config: &Config) -> Result<(), TypeErr> {
@@ -315,12 +326,6 @@ pub fn install_pkgs(
         if let Err(e) = install_pkg_files(NBPM_WORK_CURR, config.root()) {
             return Err((installed_pkgs, e));
         }
-
-        // // get the name of the installed package
-        // let name = match pkg_info.keys().next() {
-        //     Some(k) => k.clone(),
-        //     None => unimplemented!(),
-        // };
 
         // it's safe to call unwrap here as in the lines above, key's existance its ensured
         let info = pkg_info.remove(pkg_name).unwrap(); // get the `PkgInfo` object
