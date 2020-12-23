@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::{stdin, stdout, Write};
 use std::path::Path;
 
 use nbkit::core::{pkgdb::SetInfo, Set};
@@ -78,7 +77,7 @@ fn main() {
             Err(e) => exit_with_err(Box::new(e)),
         };
         let names: Vec<&str> = names_list.collect();
-        let mut graph = match index_db.get_subgraph(Some(names)) {
+        let mut graph = match index_db.get_subgraph(Some(&names), true) {
             Ok(g) => g,
             Err(e) => exit_with_err(e),
         };
@@ -104,20 +103,15 @@ fn main() {
 
         // show the packages to be installed and askfor user confirmation
         println!("Packages to be installed ({}):", graph.len());
-        let mut line = String::new();
-        print!("\nAre you sure you want to install this packages? [Y/n] ");
-        if let Err(e) = stdout().flush() {
-            exit_with_err(Box::new(e));
+        match nbpm::utils::read_line("\nAre you sure you want to install this packages? [Y/n] ") {
+            Ok(line) => {
+                if !line.is_empty() && line != "y" && line != "Y" {
+                    println!("Operation cancelled");
+                    std::process::exit(0);
+                }
+            }
+            Err(e) => exit_with_err(e),
         }
-        let _n = stdin()
-            .read_line(&mut line)
-            .expect("Cannot read user input");
-        line = line.trim_end().to_string();
-        if line == "N" || line == "n" {
-            println!("Installation cancelled");
-            std::process::exit(0);
-        }
-        println!();
 
         if let Err(e) = nbpm::utils::init_working_dir() {
             exit_with_err(e);
@@ -179,8 +173,44 @@ fn main() {
     // -------------------------------- //
 
     // ------------ remove ------------ //
-    if let Some(names_list) = args.values_of("remove") {
-        println!("Remove: {:?}", names_list);
+    if let Some(sub_cmd) = args.subcommand_matches("remove") {
+        let names_list = sub_cmd.values_of("packages").unwrap();
+        // TODO: Lock the database file
+        // open the local package database
+        let mut local_db = match nbpm::utils::load_pkgdb(&config, Set::Local) {
+            Ok(v) => v,
+            Err(e) => exit_with_err(Box::new(e)),
+        };
+        let to_remove_names: Vec<&str> = names_list.collect();
+
+        let to_remove_graph =
+            match local_db.get_subgraph(Some(&to_remove_names), sub_cmd.is_present("recursive")) {
+                Ok(g) => g,
+                Err(e) => exit_with_err(e),
+            };
+
+        println!(
+            "The following packages are going to be removed ({}):",
+            to_remove_graph.len()
+        );
+        to_remove_graph
+            .iter()
+            .for_each(|(name, info)| println!("     {} {}", name, info.version()));
+
+        // ask the user for confirmation before removing the packages
+        match nbpm::utils::read_line("\nAre you sure you want to remove this packages? [Y/n] ") {
+            Ok(line) => {
+                if !line.is_empty() && line != "y" && line != "Y" {
+                    println!("Operation cancelled");
+                    std::process::exit(0);
+                }
+            }
+            Err(e) => exit_with_err(e),
+        }
+
+        println!("[*] Checking for conflicts...");
+        if let Err(e) = local_db.check_remove(to_remove_names) {
+            exit_with_err(e);
+        }
     }
-    // -------------------------------- //
 }
