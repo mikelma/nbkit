@@ -197,7 +197,7 @@ impl PkgDb {
 
     /// Checks if a list of packages (`to_remove`) can be removed from the current `PkgDb` without
     /// breaking another packages.
-    pub fn check_remove(&mut self, to_remove: Vec<&str>) -> Result<(), TypeErr> {
+    pub fn check_remove(&self, to_remove: Vec<&str>) -> Result<(), TypeErr> {
         // get the info object of every package requested to be removed
         let mut pending = HashMap::new();
         for name in to_remove {

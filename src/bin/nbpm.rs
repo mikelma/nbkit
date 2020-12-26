@@ -113,47 +113,10 @@ fn main() {
             Err(e) => exit_with_err(e),
         }
 
-        if let Err(e) = nbpm::utils::init_working_dir() {
+        if let Err(e) = nbpm::install::install_handler(&graph, &config, &mut local_db) {
+            eprintln!("[!] Installation failed");
             exit_with_err(e);
         }
-
-        let downl_files = match nbpm::utils::download_pkgs_to_workdir(&graph, &config) {
-            Ok(v) => v,
-            Err(e) => exit_with_err(e),
-        };
-
-        match nbpm::utils::install_pkgs(&downl_files, &config) {
-            Ok(installed_pkgs) => {
-                // successfull installation of all the packages, now update the local_db
-                for (name, mut info) in installed_pkgs {
-                    // set the prefix of the package's file paths to the root path specified in the
-                    // config file
-                    match info.mut_set_info() {
-                        Some(SetInfo::Local(set)) => set.set_path_prefix(Path::new(config.root())),
-                        Some(SetInfo::Universe(_)) => unreachable!(),
-                        None => (), // the package is a meta-package, it does not contain any Local set info to modify
-                    }
-                    let _ = local_db.insert(&name, info);
-                }
-            }
-            Err((installed_pkgs, err)) => {
-                eprintln!("[EE] Installation failed: {}", err);
-                // delete all the installed packages.
-                if let Err(e) = nbpm::utils::remove_local_pkgs(&installed_pkgs, &config) {
-                    eprintln!("[!] Warning failed to remove package: {}", e);
-                    exit_with_err(e);
-                }
-            }
-        }
-
-        // get metapackages of the graph and insert them into the local db as they are considered
-        // installed on the system
-        graph
-            .iter()
-            .filter(|(_, &info)| info.is_meta())
-            .for_each(|(name, &info)| {
-                let _ = local_db.insert(name, info.clone());
-            });
 
         // save the updated local db with the new packages
         let db_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
@@ -211,6 +174,15 @@ fn main() {
         println!("[*] Checking for conflicts...");
         if let Err(e) = local_db.check_remove(to_remove_names) {
             exit_with_err(e);
+        }
+
+        for (name, info) in &to_remove_graph {
+            println!("[*] Removing {}...", name);
+            let files = match info.set_info() {
+                Some(SetInfo::Local(local_info)) => local_info.paths(),
+                Some(SetInfo::Universe(_)) => unreachable!(),
+                None => continue,
+            };
         }
     }
 }
