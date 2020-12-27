@@ -26,10 +26,35 @@ use crate::{utils, TypeErr};
 /// - Cannot install package's files to the destination.
 /// - Cannot clean the installation working directory.
 pub fn install_handler(
-    graph: &HashMap<String, &PkgInfo>,
+    names: &[&str],
     config: &Config,
     local_db: &mut PkgDb,
+    index_db: &PkgDb,
 ) -> Result<(), TypeErr> {
+    let mut graph = index_db.get_subgraph(Some(&names), true)?;
+
+    // remove the already installed packages from the graph, this function will also show the
+    // action nbpm will take for every package (install/update...)
+    super::utils::purge_already_installed(&mut graph, &local_db)?;
+
+    // after pkg graph purge, check if there is any package to be installed
+    if graph.is_empty() {
+        println!("Packages already installed. Skipping the installation...");
+        return Ok(());
+    }
+
+    // show the packages to be installed and ask for user confirmation
+    println!("Packages to be installed ({}):", graph.len());
+    match super::utils::read_line("\nAre you sure you want to install this packages? [Y/n] ") {
+        Ok(line) => {
+            if !line.is_empty() && line != "y" && line != "Y" {
+                println!("Operation cancelled");
+                return Ok(());
+            }
+        }
+        Err(e) => return Err(e),
+    }
+
     let downl_files = download_pkgs_to_workdir(&graph, &config)?;
 
     let mut installed_pkgs = vec![]; // names of the installed packages

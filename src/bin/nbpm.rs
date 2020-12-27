@@ -92,10 +92,6 @@ fn main() {
             Err(e) => exit_with_err(Box::new(e)),
         };
         let names: Vec<&str> = names_list.collect();
-        let mut graph = match index_db.get_subgraph(Some(&names), true) {
-            Ok(g) => g,
-            Err(e) => exit_with_err(e),
-        };
 
         // TODO: Lock the database file
         // open the local package database
@@ -104,31 +100,7 @@ fn main() {
             Err(e) => exit_with_err(Box::new(e)),
         };
 
-        // remove the already installed packages from the graph, this function will also show the
-        // action nbpm will take for every package (install/update...)
-        if let Err(e) = nbpm::utils::purge_already_installed(&mut graph, &local_db) {
-            exit_with_err(e);
-        }
-
-        // after pkg graph purge, check if there is any package to be installed
-        if graph.is_empty() {
-            println!("Packages already installed. Skipping the installation...");
-            return;
-        }
-
-        // show the packages to be installed and askfor user confirmation
-        println!("Packages to be installed ({}):", graph.len());
-        match nbpm::utils::read_line("\nAre you sure you want to install this packages? [Y/n] ") {
-            Ok(line) => {
-                if !line.is_empty() && line != "y" && line != "Y" {
-                    println!("Operation cancelled");
-                    std::process::exit(0);
-                }
-            }
-            Err(e) => exit_with_err(e),
-        }
-
-        if let Err(e) = nbpm::install::install_handler(&graph, &config, &mut local_db) {
+        if let Err(e) = nbpm::install::install_handler(&names, &config, &mut local_db, &index_db) {
             eprintln!("[!] Installation failed");
             exit_with_err(e);
         }

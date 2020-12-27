@@ -23,7 +23,7 @@ pub fn remove_handler(
         graph
             .iter()
             .for_each(|(name, info)| println!("     {} {}", name, info.version()));
-        match crate::utils::read_line("\nAre you sure you want to remove this packages? [Y/n] ") {
+        match crate::utils::read_line("Are you sure you want to remove this packages? [Y/n] ") {
             Ok(line) => {
                 if !line.is_empty() && line != "y" && line != "Y" {
                     println!("Operation cancelled");
@@ -41,12 +41,24 @@ pub fn remove_handler(
     }
 
     let mut errors = vec![];
-    for (pkg_name, pkg_info) in graph {
+    for (pkg_name, pkg_info) in &graph {
         println!("Removing {}...", pkg_name);
         // remove package's files
         if let Err(err) = remove_local_pkg_files(pkg_info) {
             eprintln!("Error while removing {}\n", pkg_name);
             errors.push((pkg_name.to_string(), err));
+        }
+    }
+    // remove package from the local `PkgDb`, this is not done in the previous loop due to the
+    // borrowing of `local_db`...
+    let to_remove_names: Vec<String> = graph.keys().map(|k| k.to_string()).collect();
+    println!();
+    for name in to_remove_names {
+        println!("Removing {} from local db", name);
+        // disable conflict check as it was done earlier
+        if let Err(e) = local_db.remove(&name, false) {
+            eprintln!("Error while removing {} from local db\n", name);
+            errors.push((name.to_string(), e));
         }
     }
 

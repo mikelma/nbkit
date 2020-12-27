@@ -49,12 +49,12 @@ impl fmt::Display for NbpmError {
             NbpmError::CannotRemove(paths) => {
                 writeln!(f, "Cannot remove the following files or directories:")?;
                 for (p, e) in paths {
-                    writeln!(f, "  * {}: {}", p.display(), e)?;
+                    writeln!(f, "    * {}: {}", p.display(), e)?;
                 }
                 Ok(())
             }
             NbpmError::CannotRemovePkgs(pkgs) => {
-                writeln!(f, "Cannot remove the following packages")?;
+                writeln!(f, "The following packages could not be removed:")?;
                 for (p, e) in pkgs {
                     writeln!(f, "  - {}: {}", p, e)?;
                 }
