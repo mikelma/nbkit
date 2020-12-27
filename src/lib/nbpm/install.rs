@@ -4,11 +4,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::utils::{
-    clean_work_curr, download_pkgs_to_workdir, remove_local_pkg_files, remove_path,
-};
+use super::utils::{clean_work_curr, download_pkgs_to_workdir};
 use super::NBPM_WORK_CURR;
-use super::{Config, NbpmError};
+use super::{remove::*, Config, NbpmError};
 use crate::core::{pkgdb::PkgInfo, PkgDb, SetInfo};
 use crate::repo::REPO_PKG_INFO;
 use crate::{utils, TypeErr};
@@ -70,6 +68,7 @@ pub fn install_handler(
             Some(SetInfo::Universe(_)) => unreachable!(),
             None => (), // the package is a meta-package, it does not contain any Local set info to modify
         }
+        // push the package data to the local db
         let _ = local_db.insert(&pkg_name, info);
         println!("[*] Installing {}...", pkg_name);
         installed_pkgs.push(pkg_name);
@@ -97,14 +96,11 @@ pub fn install_handler(
         });
 
     if status.is_err() {
-        // something went wront
-        println!(
-            "\n[!] Trying to undo the installation... {:?}",
-            installed_pkgs
-        );
+        // something went wrong, try to undo changes
+        println!("\n[!] Trying to undo the installation...");
         let names_list: Vec<&str> = installed_pkgs.iter().map(|s| s.as_str()).collect();
-        let installed_graph = local_db.get_subgraph(Some(&names_list), false)?;
-        remove_local_pkg_files(&installed_graph)?;
+        // let installed_graph = local_db.get_subgraph(Some(&names_list), false)?;
+        remove_handler(&names_list, false, false, false, local_db)?;
     }
     status
 }

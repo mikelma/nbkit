@@ -195,8 +195,36 @@ impl PkgDb {
         self.pkgdata.get(name)
     }
 
+    /// Removes a given package from the `PkgDb`. If `check_conflicts` is set to `true`, this
+    /// function calls `check_remove` before removing the package.
+    ///
+    /// # Errors
+    ///
+    /// If the given package name does not exist in the `PkgDb`, the function returns a
+    /// `PkgNotFound` error.
+    ///
+    /// For errors caused by `check_remove` method, see `check_remove`'s documentation.
+    pub fn remove(&mut self, name: &str, check_conflicts: bool) -> Result<(), TypeErr> {
+        if check_conflicts {
+            self.check_remove(vec![name])?;
+        }
+
+        if self.pkgdata.remove(name).is_none() {
+            return Err(Box::new(NbError::PkgNotFound(name.to_string())));
+        }
+
+        Ok(())
+    }
+
     /// Checks if a list of packages (`to_remove`) can be removed from the current `PkgDb` without
     /// breaking another packages.
+    ///
+    /// # Errors
+    ///
+    /// If a given package name is not found in the `PkgDb`, the function returns a `PkgNotFound`
+    /// error.
+    /// If removing one of the given packages breaks the dependency of a package that is not
+    /// requested to remove, the function returns a `RemoveBreaksPkg` error.
     pub fn check_remove(&self, to_remove: Vec<&str>) -> Result<(), TypeErr> {
         // get the info object of every package requested to be removed
         let mut pending = HashMap::new();
@@ -234,7 +262,7 @@ impl PkgDb {
 
     pub fn get_subgraph(
         &self,
-        select: Option<&Vec<&str>>,
+        select: Option<&[&str]>,
         follow_deps: bool,
     ) -> Result<HashMap<String, &PkgInfo>, TypeErr> {
         // packages pending to be processed

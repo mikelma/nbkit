@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use nbkit::core::{pkgdb::SetInfo, Set};
+use nbkit::core::{PkgDb, Set};
 use nbkit::nbpm::{self, *};
 use nbkit::{repo::*, utils};
 
@@ -29,6 +29,21 @@ fn main() {
                     eprintln!("Warning: Loading deafult configurations");
                     Default::default()
                 }
+            }
+        }
+    };
+
+    // a closure to save the local `PkgDb` if it's changed
+    let save_local_db = |db_ref: &PkgDb| {
+        let db_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
+        match toml::to_string_pretty(db_ref) {
+            Ok(s) => {
+                if let Err(e) = fs::write(db_path, s.as_bytes()) {
+                    exit_with_err(Box::new(e));
+                }
+            }
+            Err(e) => {
+                exit_with_err(Box::new(e));
             }
         }
     };
@@ -117,21 +132,7 @@ fn main() {
             eprintln!("[!] Installation failed");
             exit_with_err(e);
         }
-
-        // save the updated local db with the new packages
-        let db_path = format!("{}/{}", config.home(), LOCAL_DB_PATH);
-        match toml::to_string_pretty(&local_db) {
-            Ok(s) => {
-                if let Err(e) = fs::write(db_path, s.as_bytes()) {
-                    exit_with_err(Box::new(e));
-                }
-            }
-            Err(e) => {
-                exit_with_err(Box::new(e));
-            }
-        }
-
-        println!("Done!");
+        save_local_db(&local_db);
     }
     // -------------------------------- //
 
@@ -144,45 +145,17 @@ fn main() {
             Ok(v) => v,
             Err(e) => exit_with_err(Box::new(e)),
         };
+
         let to_remove_names: Vec<&str> = names_list.collect();
-
-        let to_remove_graph =
-            match local_db.get_subgraph(Some(&to_remove_names), sub_cmd.is_present("recursive")) {
-                Ok(g) => g,
-                Err(e) => exit_with_err(e),
-            };
-
-        println!(
-            "The following packages are going to be removed ({}):",
-            to_remove_graph.len()
-        );
-        to_remove_graph
-            .iter()
-            .for_each(|(name, info)| println!("     {} {}", name, info.version()));
-
-        // ask the user for confirmation before removing the packages
-        match nbpm::utils::read_line("\nAre you sure you want to remove this packages? [Y/n] ") {
-            Ok(line) => {
-                if !line.is_empty() && line != "y" && line != "Y" {
-                    println!("Operation cancelled");
-                    std::process::exit(0);
-                }
-            }
-            Err(e) => exit_with_err(e),
-        }
-
-        println!("[*] Checking for conflicts...");
-        if let Err(e) = local_db.check_remove(to_remove_names) {
+        if let Err(e) = nbpm::remove::remove_handler(
+            &to_remove_names,
+            sub_cmd.is_present("recursive"),
+            true, // ask for user confirmation before removing the packages
+            true, // check for conflicts
+            &mut local_db,
+        ) {
             exit_with_err(e);
         }
-
-        for (name, info) in &to_remove_graph {
-            println!("[*] Removing {}...", name);
-            let files = match info.set_info() {
-                Some(SetInfo::Local(local_info)) => local_info.paths(),
-                Some(SetInfo::Universe(_)) => unreachable!(),
-                None => continue,
-            };
-        }
+        save_local_db(&local_db);
     }
 }

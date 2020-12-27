@@ -10,6 +10,37 @@ use crate::core::{pkgdb::PkgInfo, PkgDb, Set, SetInfo};
 use crate::repo::REPO_BIN_DIR;
 use crate::{utils, TypeErr};
 
+/// Read user input from command line in form of a `String`.
+pub fn read_line(prompt: &str) -> Result<String, TypeErr> {
+    print!("{}", prompt);
+    stdout().flush()?;
+    let mut line = String::new();
+    let _n = stdin().read_line(&mut line)?;
+    line = line.trim_end().to_string();
+    Ok(line)
+}
+
+/// Given a `Set` and the `Config` for `nbpm`, the function loads the index
+/// `PkgDb` (if `set` is `Universe`) or local db `PkgDb` (if `set` is `Local`).
+pub fn load_pkgdb(config: &Config, set: Set) -> Result<PkgDb, NbpmError> {
+    let db_path = format!(
+        "{}/{}",
+        config.home(),
+        match set {
+            Set::Local => LOCAL_DB_PATH,
+            Set::Universe => LOCAL_INDEX_PATH,
+        }
+    );
+
+    match PkgDb::load(Path::new(&db_path)) {
+        Ok(db) => Ok(db),
+        Err(e) => match set {
+            Set::Local => Err(NbpmError::LocalDbLoad(format!("{}: {}", db_path, e))),
+            Set::Universe => Err(NbpmError::RepoIndexLoad(format!("{}: {}", db_path, e))),
+        },
+    }
+}
+
 /// Creates the working directory of nbpm according to `nbpm::NBPM_WORK_DIR`. If the directory
 /// already exits, this function does nothing. It also creates the current working directory
 /// in `nbpm::NBPM_WORK_CURR`.
@@ -43,131 +74,6 @@ pub fn clean_work_curr() -> Result<(), TypeErr> {
 
     if let Err(e) = fs::create_dir(NBPM_WORK_CURR) {
         return Err(Box::new(e));
-    }
-    Ok(())
-}
-
-pub fn load_pkgdb(config: &Config, set: Set) -> Result<PkgDb, NbpmError> {
-    let db_path = format!(
-        "{}/{}",
-        config.home(),
-        match set {
-            Set::Local => LOCAL_DB_PATH,
-            Set::Universe => LOCAL_INDEX_PATH,
-        }
-    );
-
-    match PkgDb::load(Path::new(&db_path)) {
-        Ok(db) => Ok(db),
-        Err(e) => match set {
-            Set::Local => Err(NbpmError::LocalDbLoad(format!("{}: {}", db_path, e))),
-            Set::Universe => Err(NbpmError::RepoIndexLoad(format!("{}: {}", db_path, e))),
-        },
-    }
-}
-
-/// Read user input from command line in form of a `String`.
-pub fn read_line(prompt: &str) -> Result<String, TypeErr> {
-    print!("{}", prompt);
-    stdout().flush()?;
-    let mut line = String::new();
-    let _n = stdin().read_line(&mut line)?;
-    line = line.trim_end().to_string();
-    Ok(line)
-}
-
-pub fn remove_local_pkg_files(pkgs: &HashMap<String, &PkgInfo>) -> Result<(), TypeErr> {
-    let mut status = Ok(());
-    for (pkg_name, pkg_info) in pkgs {
-        println!("[*] Removing {}", pkg_name);
-        let paths = match pkg_info.set_info() {
-            Some(set) => match set {
-                SetInfo::Local(l) => l.paths(),
-                SetInfo::Universe(_) => unimplemented!(),
-            },
-            None => continue, // if the package is a metapackage
-        };
-
-        for path in paths {
-            if let Err(e) = remove_path(&Path::new(path)) {
-                eprintln!("[EE] Cannot remove {}: {}", pkg_name, e);
-                status = Err(e);
-            }
-        }
-    }
-    status
-}
-
-pub fn remove_path(path: &Path) -> Result<(), TypeErr> {
-    if path.is_file() {
-        // if the path is a file, remove the file
-        if let Err(e) = fs::remove_file(path) {
-            return Err(Box::new(e));
-        }
-    } else if path.is_dir() {
-        // if the path is a directory, only remove the directory if the directory
-        // is empty
-        match fs::read_dir(path) {
-            Ok(entries) => {
-                if entries.count() == 0 {
-                    if let Err(e) = fs::remove_dir(path) {
-                        return Err(Box::new(e));
-                    }
-                }
-            }
-            Err(e) => return Err(Box::new(e)),
-        }
-    }
-    Ok(())
-}
-
-/// Removes the packages already installed on the system (this info isobtained from the given
-/// `PkgDb`) from the given packages graph. This function also lists the names, the action nbpm
-/// will take and basic info about the packages that remain in the graph.
-///
-/// # Error
-///
-/// If a package from the the given `graph` request the downgrade of a package already installed
-/// on the system, the function return a `NbpmError::RequiresPkgDowngrade` error.
-pub fn purge_already_installed(
-    graph: &mut HashMap<String, &PkgInfo>,
-    db: &PkgDb,
-) -> Result<(), TypeErr> {
-    let mut not_install = vec![]; // list of packages already installed and to be skipped
-    for (name, info) in graph.iter() {
-        match db.get_pkg_info(name) {
-            Some(local_pkg_info) => {
-                // there is a package with the same name already installed in the system.
-                // Determine if the package has to be updated or if the installation of this
-                // package should be skipped.
-                let curr_ver = local_pkg_info.version(); // current version of the package
-                let new_ver = info.version();
-                match new_ver.cmp(curr_ver) {
-                    // a package with the same name and versions exits in the system, so skip the
-                    // instalation of this package as it is already installed
-                    Ordering::Equal => not_install.push(name.to_string()),
-                    // cannot replace a package with an older version of a package
-                    Ordering::Less => {
-                        return Err(Box::new(NbpmError::RequiresPkgDowngrade(
-                            name.to_string(),
-                            curr_ver.clone(),
-                            info.version().clone(),
-                        )))
-                    }
-                    // every thing is ok, just update the package to a newer version of it
-                    Ordering::Greater => println!(
-                        "    {} {}    update {} -> {}",
-                        name, info, curr_ver, new_ver,
-                    ),
-                }
-            }
-            // there is no package with the same name in the local PkgDb
-            None => println!("    {} {}    install", name, info),
-        }
-    }
-    // delete already installed packages from the graph
-    for name in &not_install {
-        let _ = graph.remove_entry(name);
     }
     Ok(())
 }
@@ -219,4 +125,55 @@ pub fn download_pkgs_to_workdir(
         downl_files.push((name.clone(), pkg_xz_path));
     }
     Ok(downl_files)
+}
+
+/// Removes the packages already installed on the system (this info isobtained from the given
+/// `PkgDb`) from the given packages graph. This function also lists the names, the action nbpm
+/// will take and basic info about the packages that remain in the graph.
+///
+/// # Error
+///
+/// If a package from the the given `graph` request the downgrade of a package already installed
+/// on the system, the function return a `NbpmError::RequiresPkgDowngrade` error.
+pub fn purge_already_installed(
+    graph: &mut HashMap<String, &PkgInfo>,
+    db: &PkgDb,
+) -> Result<(), TypeErr> {
+    let mut not_install = vec![]; // list of packages already installed and to be skipped
+    for (name, info) in graph.iter() {
+        match db.get_pkg_info(name) {
+            Some(local_pkg_info) => {
+                // there is a package with the same name already installed in the system.
+                // Determine if the package has to be updated or if the installation of this
+                // package should be skipped.
+                let curr_ver = local_pkg_info.version(); // current version of the package
+                let new_ver = info.version();
+                match new_ver.cmp(curr_ver) {
+                    // a package with the same name and versions exits in the system, so skip the
+                    // instalation of this package as it is already installed
+                    Ordering::Equal => not_install.push(name.to_string()),
+                    // cannot replace a package with an older version of a package
+                    Ordering::Less => {
+                        return Err(Box::new(NbpmError::RequiresPkgDowngrade(
+                            name.to_string(),
+                            curr_ver.clone(),
+                            info.version().clone(),
+                        )))
+                    }
+                    // every thing is ok, just update the package to a newer version of it
+                    Ordering::Greater => println!(
+                        "    {} {}    update {} -> {}",
+                        name, info, curr_ver, new_ver,
+                    ),
+                }
+            }
+            // there is no package with the same name in the local PkgDb
+            None => println!("    {} {}    install", name, info),
+        }
+    }
+    // delete already installed packages from the graph
+    for name in &not_install {
+        let _ = graph.remove_entry(name);
+    }
+    Ok(())
 }

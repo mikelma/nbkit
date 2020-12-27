@@ -5,6 +5,7 @@ pub mod cli;
 pub mod config;
 pub mod errors;
 pub mod install;
+pub mod remove;
 pub mod utils;
 
 pub use config::Config;
