@@ -195,9 +195,75 @@ impl PkgDb {
         self.pkgdata.get(name)
     }
 
+    /// Removes a given package from the `PkgDb`. If `check_conflicts` is set to `true`, this
+    /// function calls `check_remove` before removing the package.
+    ///
+    /// # Errors
+    ///
+    /// If the given package name does not exist in the `PkgDb`, the function returns a
+    /// `PkgNotFound` error.
+    ///
+    /// For errors caused by `check_remove` method, see `check_remove`'s documentation.
+    pub fn remove(&mut self, name: &str, check_conflicts: bool) -> Result<(), TypeErr> {
+        if check_conflicts {
+            self.check_remove(vec![name])?;
+        }
+
+        if self.pkgdata.remove(name).is_none() {
+            return Err(Box::new(NbError::PkgNotFound(name.to_string())));
+        }
+
+        Ok(())
+    }
+
+    /// Checks if a list of packages (`to_remove`) can be removed from the current `PkgDb` without
+    /// breaking another packages.
+    ///
+    /// # Errors
+    ///
+    /// If a given package name is not found in the `PkgDb`, the function returns a `PkgNotFound`
+    /// error.
+    /// If removing one of the given packages breaks the dependency of a package that is not
+    /// requested to remove, the function returns a `RemoveBreaksPkg` error.
+    pub fn check_remove(&self, to_remove: Vec<&str>) -> Result<(), TypeErr> {
+        // get the info object of every package requested to be removed
+        let mut pending = HashMap::new();
+        for name in to_remove {
+            match self.get_pkg_info(name) {
+                Some(info) => {
+                    let _ = pending.insert(name.to_string(), info);
+                }
+                None => return Err(Box::new(NbError::PkgNotFound(name.to_string()))),
+            }
+        }
+
+        // for every package in the `PkgDb`
+        for (pkg_name, pkg_info) in &self.pkgdata {
+            if let Some(deps) = pkg_info.depends() {
+                // check if any of the `pending` packages are listed in the dependencies of a
+                // package from the PkgDb
+                for (dep_name, dep_req) in deps {
+                    for (name, info) in &pending {
+                        if dep_name == *name
+                            && dep_req.matches(info.version())
+                            && !pending.contains_key(pkg_name)
+                        {
+                            return Err(Box::new(NbError::RemoveBreaksPkg(
+                                name.to_string(),
+                                pkg_name.to_string(),
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_subgraph(
         &self,
-        select: Option<Vec<&str>>,
+        select: Option<&[&str]>,
+        follow_deps: bool,
     ) -> Result<HashMap<String, &PkgInfo>, TypeErr> {
         // packages pending to be processed
         let mut pending: Vec<String> = match select {
@@ -206,6 +272,20 @@ impl PkgDb {
         };
 
         let mut resolved: HashMap<String, &PkgInfo> = HashMap::new();
+
+        // do not follow the dependencies of the packages, this is like a simple search
+        // for all the selected packages
+        if !follow_deps {
+            for name in &pending {
+                match self.pkgdata.get(name) {
+                    Some(v) => {
+                        let _ = resolved.insert(name.to_string(), v);
+                    }
+                    None => return Err(Box::new(NbError::PkgNotFound(name.to_string()))),
+                }
+            }
+            return Ok(resolved);
+        }
 
         while !pending.is_empty() {
             let current = match pending.pop() {
@@ -228,7 +308,6 @@ impl PkgDb {
             }
             resolved.insert(current, pkg);
         }
-        // println!("[TODO] broken dependency check as in struct Graph");
         Self::check_subgraph_integrity(&resolved)?;
         Ok(resolved)
     }

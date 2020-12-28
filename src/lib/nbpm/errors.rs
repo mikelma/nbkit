@@ -15,6 +15,10 @@ pub enum NbpmError {
     /// A package requires another package to be downgraded. Contains the name of the package
     /// asked to downgrade and the current version of the package and version to downgrade to
     RequiresPkgDowngrade(String, Version, Version),
+    /// Contains the paths to the files/dirs that couldn't be removed and the errors
+    CannotRemove(Vec<(PathBuf, Box<dyn Error>)>),
+    /// Contains name and errors of the packages that couldn't be removed
+    CannotRemovePkgs(Vec<(String, Box<dyn Error>)>),
 }
 
 impl fmt::Display for NbpmError {
@@ -28,7 +32,7 @@ impl fmt::Display for NbpmError {
                 "Clean unsuccessful installation. All installed files has been removed."
             ),
             NbpmError::DirtyUnSuccessfulInstallation(paths) => {
-                write!(
+                writeln!(
                     f,
                     "Dirty unsuccessful installation. Cannot remove some instaled files:",
                 )?;
@@ -42,6 +46,20 @@ impl fmt::Display for NbpmError {
                 "Required to downgrade {} from version {} to {}",
                 name, v_old, v_new
             ),
+            NbpmError::CannotRemove(paths) => {
+                writeln!(f, "Cannot remove the following files or directories:")?;
+                for (p, e) in paths {
+                    writeln!(f, "    * {}: {}", p.display(), e)?;
+                }
+                Ok(())
+            }
+            NbpmError::CannotRemovePkgs(pkgs) => {
+                writeln!(f, "The following packages could not be removed:")?;
+                for (p, e) in pkgs {
+                    writeln!(f, "  - {}: {}", p, e)?;
+                }
+                Ok(())
+            }
         }
     }
 }

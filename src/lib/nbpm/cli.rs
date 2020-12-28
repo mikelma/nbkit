@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{App, Arg, SubCommand};
 
 pub fn init_cli_args() -> App<'static, 'static> {
     App::new("nbpm")
@@ -40,14 +40,21 @@ pub fn init_cli_args() -> App<'static, 'static> {
                 .conflicts_with_all(&["update-repos", "search", "remove"])
                 .help("Install a package or list of packages"),
         )
-        .arg(
-            Arg::with_name("remove")
-                .short("R")
-                .long("remove")
-                .takes_value(true)
-                .multiple(true)
-                .value_name("packages")
-                .conflicts_with_all(&["update-repos", "search", "install"])
-                .help("Remove a package or a list of packages"),
+        .subcommand(
+            SubCommand::with_name("remove")
+                .about("Remove installed packages")
+                .arg(
+                    Arg::with_name("recursive")
+                        .long("recursive")
+                        .short("R")
+                        .help("Package or packages to remove")
+                        .takes_value(false),
+                )
+                .arg(
+                    Arg::with_name("packages")
+                        .help("Package or packages to remove")
+                        .required(true)
+                        .multiple(true),
+                ),
         )
 }
